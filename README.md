@@ -1,3 +1,21 @@
+
+This is the Moonscript/Lua port.
+Please work on the moonscript files and compile then before
+committing any changes.
+
+
+NOTES
+-----
+
+* Method names are using camelcase
+* Attributes names are using underscore
+
+Authors of the port: Thomas R. Koll, <tomk32@tomk32.de>
+
+
+Original README
+----
+
 After working on a [Perlin-noise-based map
 generator](http://simblob.blogspot.com/2010/01/simple-map-generation.html)
 I had wanted something with islands and rivers and volcanoes and
