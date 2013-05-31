@@ -260,7 +260,7 @@ class Map
       edge = Edge()
       edge.index = #@edges
       table.insert(@edges, edge)
-      edge.midpoint = vedge.p0 && vedge.p1 && Point.interpolate(vedge.p0, vedge.p1)
+      edge.midpoint = vedge.p0 and vedge.p1 and Point.interpolate(vedge.p0, vedge.p1)
 
       -- Edges point to corners. Edges point to centers.
       edge.v0 = @makeCorner(vedge.p0)
@@ -279,12 +279,12 @@ class Map
         table.insert(edge.v1.protrude, edge)
 
       -- Centers point to centers
-      if edge.d0 ~= nil && edge.d1 ~= nil
+      if edge.d0 ~= nil and edge.d1 ~= nil
         addToTable(edge.d0.neighbors, edge.d1)
         addToTable(edge.d1.neighbors, edge.d0)
 
       -- Corners point to corners
-      if edge.v0 ~= nil && edge.v1 ~= nil
+      if edge.v0 ~= nil and edge.v1 ~= nil
         addToTable(edge.v0.adjacent, edge.v1)
         addToTable(edge.v1.adjacent, edge.v0)
 
@@ -315,23 +315,23 @@ class Map
         if dx * dx + dy * dy < 0.000001
           return corner
 
-     -- NOTE: We are keeping track of the number of buckets
-     bucket = math.floor(point.x)
-     if not @corner_map[bucket]
-       @corner_map[bucket] = {}
-       @corner_map._length += 1
-     coner = Corner()
+    -- NOTE: We are keeping track of the number of buckets
+    bucket = math.floor(point.x)
+    if not @corner_map[bucket]
+      @corner_map[bucket] = {}
+      @corner_map._length += 1
+    coner = Corner()
 
-     corner.index = corners._length
-     corner.point = point
-     corner.border = (point.x == 0 or point.x == @size or point.y == 0 or point.y == @size)
-     corner.touches = {}
-     corner.protrudes = {}
-     corner.adjacent = {}
-     corners[corner.index] = corner
-     table.insert(@corner_map[bucket], corner)
-     -- end makeCorner
-     return corner
+    corner.index = corners._length
+    corner.point = point
+    corner.border = (point.x == 0 or point.x == @size or point.y == 0 or point.y == @size)
+    corner.touches = {}
+    corner.protrudes = {}
+    corner.adjacent = {}
+    corners[corner.index] = corner
+    table.insert(@corner_map[bucket], corner)
+    -- end makeCorner
+    return corner
 
 
   -- Determine elevations and water at Voronoi corners. By
@@ -412,7 +412,7 @@ class Map
       --  *  y = 2x - x^2
       --  *  x^2 - 2x + y = 0
       -- From this we can use the quadratic equation to get:
-      x = scale_factor_sqrt - math.sqrt(SCALE_FACTOR*(1-y));
+      x = scale_factor_sqrt - math.sqrt(SCALE_FACTOR*(1-y))
       -- TODO: Does sbreak downslopes? (from original AS)
       if x > 1.0
         x = 1.0
@@ -439,16 +439,16 @@ class Map
 
     for i, point in ipairs(@centers)
       num_water = 0
-        for j, corner in ipairs(point.corners)
-          if corner.border
-            point.border = true
-            p.ocean = true
-            corner.water = true
-            queue_count += 1
-            queue[queue_count] = point
+      for j, corner in ipairs(point.corners)
+        if corner.border
+          point.border = true
+          p.ocean = true
+          corner.water = true
+          queue_count += 1
+          queue[queue_count] = point
 
-          if corner.water
-            num_water += 1
+        if corner.water
+          num_water += 1
       point.water = (point.ocean or num_water >= #point.corners * @lake_treshold)
 
     first_point = 1
@@ -490,16 +490,114 @@ class Map
           num_land += 1
       point.ocean = num_ocean == #point.touches
       point.coast = num_land > 0 and num_ocean > 0
-      point.water = point.border or (num_land ~= #point.touches && not point.coast)
+      point.water = point.border or (num_land ~= #point.touches and not point.coast)
 
 
-    -- Polygon elevations are the average of the elevations of their corners.
-    assignPolygonElevations: =>
-      for i, point in ipairs(@centers)
-        sum_elevation = 0
-        for j, corner in ipairs(point.corners)
-          sum_elevation += point.elevation
-        point.elevation = sum_elevation / #point.corners
+  -- Polygon elevations are the average of the elevations of their corners.
+  assignPolygonElevations: =>
+    for i, point in ipairs(@centers)
+      sum_elevation = 0
+      for j, corner in ipairs(point.corners)
+        sum_elevation += point.elevation
+      point.elevation = sum_elevation / #point.corners
+
+  -- Calculate downslope pointers.  At every point, we point to the
+  -- point downstream from it, or to itself.  This is used for
+  -- generating rivers and watersheds.
+  calculateDownslopes: =>
+    for i, point in ipairs(@corners)
+      r = point
+      for j, adjacent in ipairs(point.adjacent)
+        if adjacent.elevation < r.elevation
+          r = adjacent
+      point.downslope = r
+
+  -- Calculate the watershed of every land point. The watershed is
+  -- the last downstream land point in the downslope graph.
+  -- TODO:
+  -- watersheds are currently calculated on corners, but it'd be
+  -- more useful to compute them on polygon centers so that every
+  -- polygon can be marked as being in one watershed.
+  calculateWatersheds: =>
+    for i, point in ipairs(@corners)
+      point.watershed = point
+      if not point.ocean and not point.coast
+        point.watershed = point.downslope
+
+    -- Follow the downslope pointers to the coast. Limit to SIZE / 5
+    -- iterations although most of the time with NUM_POINTS=2000 it
+    -- only takes 20 iterations because most points are not far from
+    -- a coast.  TODO: can run faster by looking at
+    -- p.watershed.watershed instead of p.downslope.watershed.
+    for i=0, math.floor(@size / 5)
+      changed = false
+      for j, corner in ipairs(@corners)
+        if not corner.ocean and not corner.coast and not corner.watershed.coast
+          r = corner.downslope.watershed
+          if not r.ocean
+            corner.watershed = r
+          changed = true
+      if not changed
+        break
+    -- How long is each watershed?
+    for i, point in ipairs(@corners)
+      point.watershed_size = 1 + (r.watershed_size or 0)
+
+  -- Create rivers along edges. Pick a random corner point, then
+  -- move downslope. Mark the edges and corners as rivers.
+  createRivers: =>
+    corners_length = #@corners
+    for i=1, @size / 2
+      point = @corners[@map_random\nextIntRange(1, corners_length)]
+      if point.ocean or point.elevation < 0.3 or point.elevation > 0.9
+        continue
+      -- Bias rivers to go west: if (q.downslope.x > q.x) continue;
+      while not point.coast
+        if point == point.downslope
+          break
+        edge = @lookupEdgeFromCorner(point, point.downslope)
+        edge.river = edge.river + 1
+        point.river = 1 + (point.river or 0)
+        -- TODO: fix double count
+        point.downslope.river = 1 + (point.downslope.river or 0)
+        point = point.downslope
+
+  -- Calculate moisture. Freshwater sources spread moisture: rivers
+  -- and lakes (not oceans). Saltwater sources have moisture but do
+  -- not spread it (we set it at the end, after propagation).
+  assignCornerMoisture: =>
+    queue = {}
+    -- to avoid Lua table length madness we count manually
+    queue_count = 0
+
+    for i, point in ipairs(@corners)
+      if (point.water or point.river > 0) and not point.ocean
+        point.moisture = 1.0
+        if point.river > 0
+          point.moisture = Math.min(3.0, (0.2 * point.river))
+        queue_count += 1
+        queue[queue_count] = point
+      else
+        point.moisture = 0.0
+
+    first_point = 1
+    while queue_count > 0
+      point = queue[first_point]
+      for i, adjacent in ipairs(point.adjacent)
+        new_moisture = point.moisture * 0.8
+        if new_moisture > adjacent.moisture
+          adjacent.moisture = new_moisture
+          queue_count += 1
+          queue[queue_count] = adjacent
+
+        first_corner += 1
+        queue_count -= 1
+
+    -- Salt water
+    for i, corner in ipairs(@corners)
+      if corner.ocean or corner.coast
+        corner.moisture = 1.0
+
 
   -- Determine moisture at corners, starting at rivers
   -- and lakes, but not oceans. Then redistribute
@@ -508,6 +606,6 @@ class Map
   -- of the corner moisture.
   distributeMoisture: =>
     assignCornerMoisture()
-    redistributeMoisture(landCorners(corners))
+    redistributeMoisture(@landCorners(corners))
     assignPolygonMoisture()
 
