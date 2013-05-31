@@ -387,6 +387,120 @@ class Map
         queue_count -= 1
 
 
+  -- Change the overall distribution of elevations so that lower
+  -- elevations are more common than higher
+  -- elevations. Specifically, we want elevation X to have frequency
+  -- (1-X).  To do this we will sort the corners, then set each
+  -- corner to its desired elevation.
+  redistributeElevations: =>
+    locations = @points
+    -- SCALE_FACTOR increases the mountain area. At 1.0 the maximum
+    -- elevation barely shows up on the map, so we set it to 1.1.
+    scale_factor = 1.1
+    scale_factor_sqrt = math.sqrt(scale_factor)
+
+    table.sort(locations, (a, b) -> a.elevation < b.elevation)
+    locations_length = #locations
+    for i, point in ipairs(locations)
+      -- Let y(x) be the total area that we want at elevation <= x.
+      -- We want the higher elevations to occur less than lower
+      -- ones, and set the area to be y(x) = 1 - (1-x)^2.
+      y = i / (locations.length-1)
+      -- Now we have to solve for x, given the known y.
+      --  *  y = 1 - (1-x)^2
+      --  *  y = 1 - (1 - 2x + x^2)
+      --  *  y = 2x - x^2
+      --  *  x^2 - 2x + y = 0
+      -- From this we can use the quadratic equation to get:
+      x = scale_factor_sqrt - math.sqrt(SCALE_FACTOR*(1-y));
+      -- TODO: Does sbreak downslopes? (from original AS)
+      if x > 1.0
+        x = 1.0
+      point.elevation = x
+
+  -- Change the overall distribution of moisture to be evenly distributed.
+  redistributeMoisture: (locations) =>
+    table.sort(locations, (a, b) -> a.moisture < b.moisture)
+    locations_length = #locations
+    for i, point in ipairs(locations)
+      point.moisture = i / locations_length
+
+  -- Determine polygon and corner types: ocean, coast, land.
+  assignOceanCoastAndLand: =>
+    -- Compute polygon attributes 'ocean' and 'water' based on the
+    -- corner attributes. Count the water corners per
+    -- polygon. Oceans are all polygons connected to the edge of the
+    -- map. In the first pass, mark the edges of the map as ocean;
+    -- in the second pass, mark any water-containing polygon
+    -- connected an ocean as ocean.
+    queue = {}
+    -- to avoid Lua table length madness we count manually
+    queue_count = 0
+
+    for i, point in ipairs(@centers)
+      num_water = 0
+        for j, corner in ipairs(point.corners)
+          if corner.border
+            point.border = true
+            p.ocean = true
+            corner.water = true
+            queue_count += 1
+            queue[queue_count] = point
+
+          if corner.water
+            num_water += 1
+      point.water = (point.ocean or num_water >= #point.corners * @lake_treshold)
+
+    first_point = 1
+    while queue_count > 0
+      point = queue[first_point]
+      for i, neighbor in ipairs(point.neighbors)
+        if neighbor.water and not neighbor.ocean
+          neighbor.ocean = true
+          queue_count += 1
+          queue[queue_count] = neighbor
+
+        first_corner += 1
+        queue_count -= 1
+
+    -- Set the polygon attribute 'coast' based on its neighbors. If
+    -- it has at least one ocean and at least one land neighbor,
+    -- then this is a coastal polygon.
+    for i, point in ipairs(@centers)
+      num_ocean = 0
+      num_land = 0
+      for j, neighbor in ipairs(point.neighbors)
+        if neighbor.ocean
+          num_ocean += 1
+        elseif not neighbor.water
+          num_land += 1
+      point.coast = num_land > 0 and num_ocean > 0
+
+    -- Set the corner attributes based on the computed polygon
+    -- attributes. If all polygons connected to this corner are
+    -- ocean, then it's ocean; if all are land, then it's land;
+    -- otherwise it's coast.
+    for i, point in ipairs(@corners)
+      num_ocean = 0
+      num_land = 0
+      for j, neighbor in ipairs(point.touches)
+        if neighbor.ocean
+          num_ocean += 1
+        elseif not neighbor.water
+          num_land += 1
+      point.ocean = num_ocean == #point.touches
+      point.coast = num_land > 0 and num_ocean > 0
+      point.water = point.border or (num_land ~= #point.touches && not point.coast)
+
+
+    -- Polygon elevations are the average of the elevations of their corners.
+    assignPolygonElevations: =>
+      for i, point in ipairs(@centers)
+        sum_elevation = 0
+        for j, corner in ipairs(point.corners)
+          sum_elevation += point.elevation
+        point.elevation = sum_elevation / #point.corners
+
   -- Determine moisture at corners, starting at rivers
   -- and lakes, but not oceans. Then redistribute
   -- moisture to cover the entire range evenly from 0.0
