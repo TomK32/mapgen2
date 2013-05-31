@@ -334,7 +334,57 @@ class Map
      return corner
 
 
+  -- Determine elevations and water at Voronoi corners. By
+  -- construction, we have no local minima. This is important for
+  -- the downslope vectors later, which are used in the river
+  -- construction algorithm. Also by construction, inlets/bays
+  -- push low elevation areas inland, which means many rivers end
+  -- up flowing out through them. Also by construction, lakes
+  -- often end up on river paths because they don't raise the
+  -- elevation as much as other terrain does.
+  assignCornerElevations: =>
+    queue = {}
+    -- to avoid Lua table length madness we count manually
+    queue_count = 0
+    for i, corner in ipairs(@corners)
+      corner.water = not @\inside(corner.point)
 
+      if corner.border
+        -- The edges of the map are elevation 0
+        corner.elevation = 0.0
+        queue_count += 1
+        queue[queue_count] = corner
+      else
+        -- This is infinity so in the next step we start
+        -- to increase the elevation first for those points
+        -- next to the 0.0 border points and slowly
+        -- work inwards
+        corner.elevation = math.huge
+
+    -- Traverse the graph and assign elevations to each point. As we
+    -- move away from the map border, increase the elevations. This
+    -- guarantees that rivers always have a way down to the coast by
+    -- going downhill (no local minima).
+    first_corner = 1
+    while queue_count > 0
+      corner = queue[first_corner]
+      for i, adjacent in ipairs(corner.adjacent)
+        -- Every step up is epsilon over water or 1 over land. The
+        -- number doesn't matter because we'll rescale the
+        -- elevations later.
+        new_elevation = 0.001 + corner.elevation
+        if not corner.water and not adjacent.water
+          new_elevation += 1
+
+        -- If this point changed, we'll add it to the queue so
+        -- that we can process its neighbors too.
+        if new_elevation < adjacent.elevation
+          adjacent.elevation = new_elevation
+          queue_count += 1
+          queue[queue_count] = adjacent
+
+        first_corner += 1
+        queue_count -= 1
 
 
   -- Determine moisture at corners, starting at rivers
