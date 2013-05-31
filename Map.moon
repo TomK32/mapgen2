@@ -4,7 +4,7 @@
 
 -- TODO: Figure out what to use for
 --  * Voronoi
---  * Point
+--  * Edge, Center and Corner have indexes. get rid of them?
 
 class Point
   new: (x, y) =>
@@ -13,6 +13,7 @@ class Point
     @
 
   interpolate: (a, b, strength) ->
+    strength = strength or 0.5
     return Point((a.x + b.x) * strength, (a.y + b.y) * strength)
 
 class Center
@@ -22,6 +23,16 @@ class Center
     @neighbors = {}
     @boders = {}
     @corners = {}
+    @
+
+class Corner
+  new: =>
+    @
+
+class Edge
+  new: =>
+    @river = 0
+    @
 
 class Map
   -- TODO: accept a table in the constructor
@@ -199,26 +210,131 @@ class Map
   -- For boundary polygons, the Delaunay edge will have one null
   -- point, and the Voronoi edge may be null.
   buildGraph: =>
-   voronoi = @voronoi()
-   lib_edges = voronoi.edges()
-   center_lookup = {}
+    voronoi = @voronoi()
+    @lib_edges = voronoi\edges()
+    center_lookup = {}
 
-   -- Build Center objects for each of the points, and a lookup map
-   -- to find those Center objects again as we build the graph
-   center_count = 0
-   -- NOTE: This `centers = {}` is not in the original
-   @centers = {}
-   for i, point in ipairs(@points)
-     center = Center()
-     center.index = center_count
-     center.point = point
+    -- Build Center objects for each of the points, and a lookup map
+    -- to find those Center objects again as we build the graph
+    center_count = 0
+    -- NOTE: This `centers = {}` is not in the original
+    @centers = {}
+    for i, point in ipairs(@points)
+      center = Center()
+      center.index = center_count
+      center.point = point
 
-     @centers[center_count] = center
-     center_lookup[point] = center
-     center_count += 1
+      @centers[center_count] = center
+      center_lookup[point] = center
+      center_count += 1
+
+    -- Workaround for Voronoi lib bug: we need to call region()
+    -- before Edges or neighboringSites are available
+    -- TOOD: Necessary for lua?
+    for i, center in ipairs(@centers)
+      voronoi\region(center)
+
+    -- The Voronoi library generates multiple Point objects for
+    -- corners, and we need to canonicalize to one Corner object.
+    -- To make lookup fast, we keep an array of Points, bucketed by
+    -- x value, and then we only have to look at other Points in
+    -- nearby buckets. When we fail to find one, we'll create a new
+    -- Corner object.
+    @corner_map = {}
 
 
-   voronoi = nil
+    addToTable = (tbl, element) ->
+      if element ~= nil
+        for i, el in ipairs(tbl)
+          if el == element
+            return -- already in the table
+        table.insert(tbl, element)
+
+    for i, lib_edge in ipairs(@lib_edges)
+      -- TODO
+      dedge = lib_edge\delaunayLine()
+      vedge = lib_edge\voronoiEdge()
+
+      -- Fill the graph data. Make an Edge object corresponding to
+      -- the edge from the voronoi library.
+      edge = Edge()
+      edge.index = #@edges
+      table.insert(@edges, edge)
+      edge.midpoint = vedge.p0 && vedge.p1 && Point.interpolate(vedge.p0, vedge.p1)
+
+      -- Edges point to corners. Edges point to centers.
+      edge.v0 = @makeCorner(vedge.p0)
+      edge.v1 = @makeCorner(vedge.p1)
+      edge.d0 = center_lookup[dedge.p0]
+      edge.d1 = center_lookup[dedge.p1]
+
+      -- Centers point to edges. Corners point to edges.
+      if (edge.d0 ~= nil)
+        table.insert(edge.d0.borders, edge)
+      if (edge.d1 ~= nil)
+        table.insert(edge.d1.border, edge)
+      if (edge.v0 ~= nil)
+        table.insert(edge.v0.protrude, edge)
+      if (edge.v1 ~= nil)
+        table.insert(edge.v1.protrude, edge)
+
+      -- Centers point to centers
+      if edge.d0 ~= nil && edge.d1 ~= nil
+        addToTable(edge.d0.neighbors, edge.d1)
+        addToTable(edge.d1.neighbors, edge.d0)
+
+      -- Corners point to corners
+      if edge.v0 ~= nil && edge.v1 ~= nil
+        addToTable(edge.v0.adjacent, edge.v1)
+        addToTable(edge.v1.adjacent, edge.v0)
+
+      -- Centers point to corners
+      if edge.d0 ~= nil
+        addToTable(edge.d0.adjacent, edge.v0)
+        addToTable(edge.d0.adjacent, edge.v1)
+      if edge.d1 ~= nil
+        addToTable(edge.d1.adjacent, edge.v0)
+        addToTable(edge.d1.adjacent, edge.v1)
+
+      -- Corners point to centers
+      if edge.v0 ~= nil
+        addToTable(edge.v0.adjacent, edge.d0)
+        addToTable(edge.v0.adjacent, edge.d1)
+      if edge.v1 ~= nil
+        addToTable(edge.v1.adjacent, edge.d0)
+        addToTable(edge.v1.adjacent, edge.d1)
+
+  makeCorner: (point) =>
+    if point == nil
+      return
+    -- NOTE: ActionScript uses int, not sure if that is rounding dow
+    for bucket = math.floor(point.x) - 1, 2
+      for i, corner in ipairs(@corner_map[bucket])
+        dx = point.x - @corner.point.x
+        dy = point.y - @corner.point.y
+        if dx * dx + dy * dy < 0.000001
+          return corner
+
+     -- NOTE: We are keeping track of the number of buckets
+     bucket = math.floor(point.x)
+     if not @corner_map[bucket]
+       @corner_map[bucket] = {}
+       @corner_map._length += 1
+     coner = Corner()
+
+     corner.index = corners._length
+     corner.point = point
+     corner.border = (point.x == 0 or point.x == @size or point.y == 0 or point.y == @size)
+     corner.touches = {}
+     corner.protrudes = {}
+     corner.adjacent = {}
+     corners[corner.index] = corner
+     table.insert(@corner_map[bucket], corner)
+     -- end makeCorner
+     return corner
+
+
+
 
 
   -- Determine moisture at corners, starting at rivers
