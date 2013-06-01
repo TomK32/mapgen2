@@ -599,16 +599,103 @@ do
       local first_point = 1
       while queue_count > 0 do
         local point = queue[first_point]
-        for i, neighbor in ipairs(point.neighbors) do
-          if neighbor.water and not neighbor.ocean then
-            neighbor.ocean = true
+        for i, adjacent in ipairs(point.adjacent) do
+          local new_moisture = point.moisture * 0.8
+          if new_moisture > adjacent.moisture then
+            adjacent.moisture = new_moisture
             queue_count = queue_count + 1
-            queue[queue_count] = neighbor
+            queue[queue_count] = adjacent
           end
           local first_corner = first_corner + 1
           queue_count = queue_count - 1
         end
       end
+      for i, corner in ipairs(self.corners) do
+        if corner.ocean or corner.coast then
+          corner.moisture = 1.0
+        end
+      end
+    end,
+    assignPolygonMoisture = function(self)
+      for i, point in ipairs(self.centers) do
+        local sum = 0
+        for j, corner in ipairs(point.corners) do
+          sum = sum + point.moisture
+        end
+        point.moisture = sum / #point.moisture
+      end
+    end,
+    getBiome = function(self, point)
+      local e = point.elevation
+      local m = point.moisture
+      if point.ocean then
+        return "OCEAN"
+      end
+      if point.water then
+        if e < 0.1 then
+          return 'MARSH'
+        end
+        if e > 0.8 then
+          return 'ICE'
+        end
+        return 'LAKE'
+      end
+      if e > 0.8 then
+        if m > 0.5 then
+          return 'SNOW'
+        end
+        if m > 0.33 then
+          return 'TUNDRA'
+        end
+        if m > 0.16 then
+          return 'BARE'
+        end
+        return 'SCORCHED'
+      end
+      if e > 0.6 then
+        if m > 0.66 then
+          return 'Taiga'
+        end
+        if m > 0.33 then
+          return 'SHRUBLAND'
+        end
+        return 'TEMPERATE_DESERT'
+      end
+      if e > 0.3 then
+        if m > 0.83 then
+          return 'TROPICAL_RAIN_FOREST'
+        end
+        if m > 0.33 then
+          return 'TROPICAL_SEASONAL_FOREST'
+        end
+        if m > 0.16 then
+          return 'GRASSLAND'
+        else
+          return 'SUBTROPICAL_DESERT'
+        end
+      end
+    end,
+    assignBiomes = function(self)
+      for i, point in ipairs(self.centers) do
+        point.biome = self:getBiome(point)
+      end
+    end,
+    lookupEdgeFromCenter = function(self, center, other_center)
+      for i, edge in ipairs(center.borders) do
+        if edge.d0 == other_center or edge.d1 == other_center then
+          return edge
+        end
+      end
+    end,
+    lookupEdgeFromCorner = function(self, corner, other_corner)
+      for i, edge in ipairs(polygon.protrudes) do
+        if edge.v0 == other_polygon or edge.v1 == other_polygon then
+          return edge
+        end
+      end
+    end,
+    inside = function(self, point)
+      return IslandShape(Point(2 * (point.x / self.size - 0.5), 2 * (point.y / self.size - 0.5)))
     end,
     distributeMoisture = function(self)
       assignCornerMoisture()

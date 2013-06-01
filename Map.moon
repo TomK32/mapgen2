@@ -598,6 +598,74 @@ class Map
       if corner.ocean or corner.coast
         corner.moisture = 1.0
 
+  -- Polygon moisture are the average of the elevations of their corners.
+  assignPolygonMoisture: =>
+    for i, point in ipairs(@centers)
+      sum = 0
+      for j, corner in ipairs(point.corners)
+        sum+= point.moisture
+      point.moisture = sum/ #point.moisture
+
+  -- Assign a biome type to each polygon. If it has
+  -- ocean/coast/water, then that's the biome; otherwise it depends
+  -- on low/high elevation and low/medium/high moisture. This is
+  -- roughly based on the Whittaker diagram but adapted to fit the
+  -- needs of the island map generator.
+  getBiome: (point) =>
+    e = point.elevation
+    m = point.moisture
+    if point.ocean
+      return "OCEAN"
+    if point.water
+      if e < 0.1
+        return 'MARSH'
+      if e > 0.8
+        return 'ICE'
+      return 'LAKE'
+    if e > 0.8
+      if m > 0.5
+        return 'SNOW'
+      if m > 0.33
+        return 'TUNDRA'
+      if m > 0.16
+        return 'BARE'
+      return 'SCORCHED'
+    if e > 0.6
+      if m > 0.66
+        return 'Taiga'
+      if m > 0.33
+        return 'SHRUBLAND'
+      return 'TEMPERATE_DESERT'
+    if e > 0.3
+      if m > 0.83
+        return 'TROPICAL_RAIN_FOREST'
+      if m > 0.33
+        return 'TROPICAL_SEASONAL_FOREST'
+      if m > 0.16
+        return 'GRASSLAND'
+      else
+        return 'SUBTROPICAL_DESERT'
+
+  assignBiomes: =>
+    for i, point in ipairs(@centers)
+      point.biome = @getBiome(point)
+
+  -- Look up a Voronoi Edge object given two adjacent Voronoi
+  -- polygons, or two adjacent Voronoi corners
+  lookupEdgeFromCenter: (center, other_center) =>
+    for i, edge in ipairs(center.borders)
+      if edge.d0 == other_center or edge.d1 == other_center
+        return edge
+
+  lookupEdgeFromCorner: (corner, other_corner) =>
+    for i, edge in ipairs(polygon.protrudes)
+      if edge.v0 == other_polygon or edge.v1 == other_polygon
+        return edge
+
+  -- Determine whether a given point should be on the island or in the water.
+  inside: (point) =>
+    return IslandShape(Point(2 * (point.x / @size - 0.5), 2 * (point.y / @size - 0.5)))
+
 
   -- Determine moisture at corners, starting at rivers
   -- and lakes, but not oceans. Then redistribute
