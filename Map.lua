@@ -625,6 +625,11 @@ do
         point.moisture = sum / #point.moisture
       end
     end,
+    distributeMoisture = function(self)
+      assignCornerMoisture()
+      redistributeMoisture(self:landCorners(corners))
+      return assignPolygonMoisture()
+    end,
     getBiome = function(self, point)
       local e = point.elevation
       local m = point.moisture
@@ -696,11 +701,6 @@ do
     end,
     inside = function(self, point)
       return IslandShape(Point(2 * (point.x / self.size - 0.5), 2 * (point.y / self.size - 0.5)))
-    end,
-    distributeMoisture = function(self)
-      assignCornerMoisture()
-      redistributeMoisture(self:landCorners(corners))
-      return assignPolygonMoisture()
     end
   }
   _base_0.__index = _base_0
@@ -741,5 +741,91 @@ do
     _parent_0.__inherited(_parent_0, _class_0)
   end
   Map = _class_0
+end
+local IslandShape
+do
+  local _parent_0 = nil
+  local _base_0 = {
+    makeRadial = function(seed)
+      local ISLAND_FACTOR = 1.07
+      local PM_PRNG
+      do
+        local _obj_0 = new(PM_PRNG())
+        PM_PRNG = _obj_0.islandRandom
+      end
+      islandRandom.seed = seed
+      local bumps = islandRandom.nextIntRange(1, 6)
+      local startAngle = islandRandom.nextDoubleRange(0, 2 * math.PI)
+      local dipAngle = islandRandom.nextDoubleRange(0, 2 * math.PI)
+      local dipWidth = islandRandom.nextDoubleRange(0.2, 0.7)
+      local _ = {
+        inside = function(self, q)
+          local angle = math.atan2(q.y, q.x)
+          local length = 0.5 * (math.max(math.abs(q.x), math.abs(q.y)) + q.length)
+          local r1 = 0.5 + 0.40 * math.sin(startAngle + bumps * angle + math.cos((bumps + 3) * angle))
+          local r2 = 0.7 - 0.20 * math.sin(startAngle + bumps * angle - math.sin((bumps + 2) * angle))
+          if math.abs(angle - dipAngle) < dipWidth or math.abs(angle - dipAngle + 2 * math.PI) < dipWidth or math.abs(angle - dipAngle - 2 * math.PI) < dipWidth then
+            r1, r2 = 0.2, 0.2
+          end
+          return (length < r1 or (length > r1 * ISLAND_FACTOR and length < r2))
+        end
+      }
+      return inside
+    end,
+    makePerlin = function(seed)
+      local perlin = BitmapData(256, 256)
+      perlin.perlinNoise(64, 64, 8, seed, false, true)
+      return function(q)
+        local c = (255 - perlin.getPixel(math.floor((q.x + 1) * 128), int((q.y + 1) * 128))) / 255.0
+        return c > (0.3 + 0.3 * q.length * q.length)
+      end
+    end,
+    makeSquare = function(seed)
+      return function(q)
+        return true
+      end
+    end,
+    makeBlob = function(seed)
+      return function(q)
+        local eye1 = Point(q.x(-0.2, q.y / 2 + 0.2)).length < 0.05
+        local eye2 = Point(q.x + 0.2, q.y / 2 + 0.2).length < 0.05
+        local body = q.length < 0.8 - 0.18 * math.sin(5 * math.atan2(q.y, q.x))
+        return body and not eye1 and not eye2
+      end
+    end
+  }
+  _base_0.__index = _base_0
+  if _parent_0 then
+    setmetatable(_base_0, _parent_0.__base)
+  end
+  local _class_0 = setmetatable({
+    __init = function(self, ...)
+      if _parent_0 then
+        return _parent_0.__init(self, ...)
+      end
+    end,
+    __base = _base_0,
+    __name = "IslandShape",
+    __parent = _parent_0
+  }, {
+    __index = function(cls, name)
+      local val = rawget(_base_0, name)
+      if val == nil and _parent_0 then
+        return _parent_0[name]
+      else
+        return val
+      end
+    end,
+    __call = function(cls, ...)
+      local _self_0 = setmetatable({}, _base_0)
+      cls.__init(_self_0, ...)
+      return _self_0
+    end
+  })
+  _base_0.__class = _class_0
+  if _parent_0 and _parent_0.__inherited then
+    _parent_0.__inherited(_parent_0, _class_0)
+  end
+  IslandShape = _class_0
   return _class_0
 end

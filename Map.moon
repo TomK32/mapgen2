@@ -2,9 +2,10 @@
 -- Author (Actionscript): amitp@cs.stanford.edu
 -- Authors (Lua): tomk32@tomk32.com
 
--- TODO: Figure out what to use for
+-- TODO: Figure out what to do about:
 --  * Voronoi
 --  * Edge, Center and Corner have indexes. get rid of them?
+--  * BitmapData
 
 class Point
   new: (x, y) =>
@@ -606,6 +607,16 @@ class Map
         sum+= point.moisture
       point.moisture = sum/ #point.moisture
 
+  -- Determine moisture at corners, starting at rivers
+  -- and lakes, but not oceans. Then redistribute
+  -- moisture to cover the entire range evenly from 0.0
+  -- to 1.0. Then assign polygon moisture as the average
+  -- of the corner moisture.
+  distributeMoisture: =>
+    assignCornerMoisture()
+    redistributeMoisture(@landCorners(corners))
+    assignPolygonMoisture()
+
   -- Assign a biome type to each polygon. If it has
   -- ocean/coast/water, then that's the biome; otherwise it depends
   -- on low/high elevation and low/medium/high moisture. This is
@@ -666,14 +677,56 @@ class Map
   inside: (point) =>
     return IslandShape(Point(2 * (point.x / @size - 0.5), 2 * (point.y / @size - 0.5)))
 
+class IslandShape
+  -- This class has factory functions for generating islands of
+  -- different shapes. The factory returns a function that takes a
+  -- normalized point (x and y are -1 to +1) and returns true if the
+  -- point should be on the island, and false if it should be water
+  -- (lake or ocean).
 
-  -- Determine moisture at corners, starting at rivers
-  -- and lakes, but not oceans. Then redistribute
-  -- moisture to cover the entire range evenly from 0.0
-  -- to 1.0. Then assign polygon moisture as the average
-  -- of the corner moisture.
-  distributeMoisture: =>
-    assignCornerMoisture()
-    redistributeMoisture(@landCorners(corners))
-    assignPolygonMoisture()
+  -- The radial island radius is based on overlapping sine waves 
+  makeRadial: (seed) ->
+    ISLAND_FACTOR = 1.07  -- 1.0 means no small islands; 2.0 leads to a lot
+    islandRandom:PM_PRNG = new PM_PRNG()
+    islandRandom.seed = seed
+    bumps = islandRandom.nextIntRange(1, 6)
+    startAngle = islandRandom.nextDoubleRange(0, 2*math.PI)
+    dipAngle = islandRandom.nextDoubleRange(0, 2*math.PI)
+    dipWidth = islandRandom.nextDoubleRange(0.2, 0.7)
+
+    inside: (q) =>
+      angle = math.atan2(q.y, q.x)
+      length = 0.5 * (math.max(math.abs(q.x), math.abs(q.y)) + q.length)
+
+      r1 = 0.5 + 0.40*math.sin(startAngle + bumps*angle + math.cos((bumps+3)*angle))
+      r2 = 0.7 - 0.20*math.sin(startAngle + bumps*angle - math.sin((bumps+2)*angle))
+      if math.abs(angle - dipAngle) < dipWidth or math.abs(angle - dipAngle + 2 * math.PI) < dipWidth or math.abs(angle - dipAngle - 2*math.PI) < dipWidth
+        r1, r2 = 0.2, 0.2
+      return (length < r1 or (length > r1 * ISLAND_FACTOR and length < r2))
+
+    return inside
+
+  -- The Perlin-based island combines perlin noise with the radius
+  makePerlin: (seed) ->
+    -- FIXME: Use proper perline noise
+    perlin = BitmapData(256, 256)
+    perlin.perlinNoise(64, 64, 8, seed, false, true)
+
+    return (q) ->
+      -- NOTE: original had & 0xff
+      c = (255 - perlin.getPixel(math.floor((q.x+1)*128), int((q.y+1)*128))) / 255.0
+      return c > (0.3+0.3*q.length*q.length)
+
+  -- The square shape fills the entire space with land
+  makeSquare: (seed) ->
+    return (q) ->
+      return true
+
+  -- The blob island is shaped like Amit's blob logo
+  makeBlob: (seed) ->
+    return (q) ->
+      eye1 = Point(q.x-0.2, q.y/2+0.2).length < 0.05
+      eye2 = Point(q.x+0.2, q.y/2+0.2).length < 0.05
+      body = q.length < 0.8 - 0.18*math.sin(5*math.atan2(q.y, q.x))
+      return body and not eye1 and not eye2
 
