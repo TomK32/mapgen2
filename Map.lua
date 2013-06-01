@@ -155,6 +155,62 @@ do
   end
   Edge = _class_0
 end
+local PM_PRNG
+do
+  local _parent_0 = nil
+  local _base_0 = {
+    prime = math.pow(2, 31) - 1,
+    nextInt = function(self)
+      return self:generate()
+    end,
+    nextDouble = function(self)
+      return self:generate() / self.prime
+    end,
+    nextIntRange = function(self, min, max)
+      min = min - 0.4999
+      max = max + 0.4999
+      return math.floor(0.5 + min + ((max - min) * self:nextDouble()))
+    end,
+    nextDoubleRange = function(self, min, max)
+      return min + ((max - min) * self:nextDouble())
+    end,
+    generate = function(self)
+      self.seed = (self.seed * 16807) % self.prime
+      return self.seed
+    end
+  }
+  _base_0.__index = _base_0
+  if _parent_0 then
+    setmetatable(_base_0, _parent_0.__base)
+  end
+  local _class_0 = setmetatable({
+    __init = function(self, seed)
+      self.seed = seed or 1
+    end,
+    __base = _base_0,
+    __name = "PM_PRNG",
+    __parent = _parent_0
+  }, {
+    __index = function(cls, name)
+      local val = rawget(_base_0, name)
+      if val == nil and _parent_0 then
+        return _parent_0[name]
+      else
+        return val
+      end
+    end,
+    __call = function(cls, ...)
+      local _self_0 = setmetatable({}, _base_0)
+      cls.__init(_self_0, ...)
+      return _self_0
+    end
+  })
+  _base_0.__class = _class_0
+  if _parent_0 and _parent_0.__inherited then
+    _parent_0.__inherited(_parent_0, _class_0)
+  end
+  PM_PRNG = _class_0
+end
 local Map
 do
   local _parent_0 = nil
@@ -748,7 +804,6 @@ do
   local _base_0 = {
     makeRadial = function(seed)
       local ISLAND_FACTOR = 1.07
-      local PM_PRNG
       do
         local _obj_0 = new(PM_PRNG())
         PM_PRNG = _obj_0.islandRandom

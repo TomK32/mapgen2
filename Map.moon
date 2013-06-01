@@ -35,6 +35,39 @@ class Edge
     @river = 0
     @
 
+
+-- Implementation of the Park Miller (1988) "minimal standard" linear 
+-- congruential pseudo-random number generator.
+-- MIT License
+-- @author Michael Baczynski, http://lab.polygonal.de/?p=162
+-- @author Thomas R. Koll, www.ananasblau.com
+class PM_PRNG
+  prime: math.pow(2, 31) - 1
+  new: (seed) =>
+    @seed = seed or 1
+
+  nextInt: =>
+    return @generate()
+
+  nextDouble: =>
+    return @generate() / @prime
+
+  nextIntRange: (min, max) =>
+    min -= 0.4999
+    max += 0.4999
+    -- original uses round, Lua has no such thing so add 0.5
+    return math.floor(0.5 + min + ((max - min) * @nextDouble()))
+
+  nextDoubleRange: (min, max) =>
+    return min + ((max - min) * @nextDouble())
+
+  -- generator:
+  -- new-value = (old-value * 16807) mod (2^31 - 1)
+  generate: =>
+    @seed = (@seed * 16807) % @prime
+    return @seed
+	
+
 class Map
   -- TODO: accept a table in the constructor
   -- FIXME: Allow width and height for oblong shapes
